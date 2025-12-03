@@ -1,4 +1,4 @@
-const webpush = require('web-push');
+import webpush from 'web-push';
 
 const VAPID_PUBLIC = process.env.VAPID_PUBLIC;
 const VAPID_PRIVATE = process.env.VAPID_PRIVATE;

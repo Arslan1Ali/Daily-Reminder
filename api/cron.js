@@ -1,5 +1,5 @@
 import { getDb } from './db.js';
-const webpush = require('web-push');
+import webpush from 'web-push';
 
 // Configure VAPID
 const VAPID_PUBLIC = process.env.VAPID_PUBLIC;
