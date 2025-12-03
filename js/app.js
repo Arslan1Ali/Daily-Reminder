@@ -193,6 +193,8 @@ class TaskManager {
         };
         await this.db.saveTask(task);
         await this.loadTasks();
+        // Trigger sync
+        if (window.app) window.app.syncTasksToServer();
         return task;
     }
 
@@ -200,11 +202,13 @@ class TaskManager {
         task.updatedAt = new Date().toISOString();
         await this.db.saveTask(task);
         await this.loadTasks();
+        if (window.app) window.app.syncTasksToServer();
     }
 
     async deleteTask(id) {
         await this.db.deleteTask(id);
         await this.loadTasks();
+        if (window.app) window.app.syncTasksToServer();
     }
 
     async toggleComplete(id) {
@@ -448,23 +452,49 @@ class App {
         const VAPID_PUBLIC_KEY = window.VAPID_PUBLIC_KEY || null;
         if (!VAPID_PUBLIC_KEY) {
             console.warn('No VAPID public key set. Provide one on the page as window.VAPID_PUBLIC_KEY');
+            return;
         }
 
         try {
             const sub = await reg.pushManager.subscribe({
                 userVisibleOnly: true,
-                applicationServerKey: VAPID_PUBLIC_KEY ? this.urlBase64ToUint8Array(VAPID_PUBLIC_KEY) : undefined
+                applicationServerKey: this.urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
             });
 
-            // Send subscription to server for storage (server endpoint must be implemented)
-            await fetch('/api/subscribe', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ subscription: sub })
-            });
-            console.log('Push subscribed and sent to server');
+            // Save subscription locally so we can use it for syncing
+            this.pushSubscription = sub;
+            
+            // Initial Sync
+            await this.syncTasksToServer();
+            
+            console.log('Push subscribed and synced');
         } catch (e) {
             console.warn('Failed to subscribe to push', e);
+        }
+    }
+
+    async syncTasksToServer() {
+        if (!this.pushSubscription) return;
+        
+        const tasks = await this.taskManager.loadTasks();
+        // Enrich tasks with "completedToday" status for the server
+        const tasksToSend = tasks.map(t => ({
+            ...t,
+            completedToday: this.taskManager.isCompletedToday(t)
+        }));
+
+        try {
+            await fetch('/api/sync', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    subscription: this.pushSubscription,
+                    tasks: tasksToSend
+                })
+            });
+            console.log('Tasks synced to server');
+        } catch (e) {
+            console.error('Sync failed', e);
         }
     }
 
